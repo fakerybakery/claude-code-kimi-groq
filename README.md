@@ -24,4 +24,4 @@ If you use this, I'd love to hear about your experience with Kimi K2 and how it 
 
 ## Acknowledgements
 
-Inspired by github.com/1rgs/claude-code-proxy
+Inspired by [claude-code-proxy](https://github.com/1rgs/claude-code-proxy)
