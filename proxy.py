@@ -1,12 +1,13 @@
+import asyncio
 import json
 import os
 import uuid
-from typing import Any, Dict, List, Literal, Optional, Union
+from typing import Any, Dict, List, Literal, Optional, Union, AsyncIterator
 
 import uvicorn
 from dotenv import load_dotenv
 from fastapi import FastAPI, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from openai import OpenAI
 from pydantic import BaseModel
 from rich import print
@@ -19,10 +20,8 @@ client = OpenAI(
 )
 
 GROQ_MODEL = "moonshotai/kimi-k2-instruct"
-GROQ_MAX_OUTPUT_TOKENS = 16384
+GROQ_MAX_OUTPUT_TOKENS = 16_384     # max Groq supports
 
-
-# ---------- Anthropic Schema ----------
 class ContentBlock(BaseModel):
     type: Literal["text"]
     text: str
@@ -55,8 +54,6 @@ class MessagesRequest(BaseModel):
     stream: Optional[bool] = False
     tools: Optional[List[Tool]] = None
     tool_choice: Optional[Union[str, Dict[str, str]]] = "auto"
-
-# ---------- Conversion Helpers ----------
 
 
 def convert_messages(messages: List[Message]) -> List[dict]:
@@ -110,28 +107,118 @@ def convert_tool_calls_to_anthropic(tool_calls) -> List[dict]:
     return content
 
 
-# ---------- Main Proxy Route ----------
+
+# -------- NEW: 1️⃣ Anthropic‑style SSE helpers -----------
+def sse(event: str, data: Dict[str, Any]) -> str:
+    """Encode one server‑sent‑event block."""
+    return f"event: {event}\ndata: {json.dumps(data, separators=(',', ':'))}\n\n"
+
+def anthropic_stream(
+    groq_chunks,
+    usage_in: int,
+    model_name: str,
+):
+    """Translate Groq’s OpenAI chunks ➜ Anthropic SSE."""
+    msg_id = f"msg_{uuid.uuid4().hex[:12]}"
+    yield sse(
+        "message_start",
+        {
+            "type": "message_start",
+            "message": {
+                "id": msg_id,
+                "type": "message",
+                "role": "assistant",
+                "content": [],
+                "model": model_name,
+                "stop_reason": None,
+                "stop_sequence": None,
+                "usage": {"input_tokens": usage_in, "output_tokens": 0},
+            },
+        },
+    ).encode()
+
+    yield sse(
+        "content_block_start",
+        {
+            "type": "content_block_start",
+            "index": 0,
+            "content_block": {"type": "text", "text": ""},
+        },
+    ).encode()
+
+    out_tokens = 0
+    for chunk in groq_chunks:    # not async!
+        choice = chunk.choices[0]
+        delta_text = getattr(choice.delta, "content", "") if hasattr(choice, "delta") else ""
+        if delta_text:
+            out_tokens += 1  # rough estimate
+            yield sse(
+                "content_block_delta",
+                {
+                    "type": "content_block_delta",
+                    "index": 0,
+                    "delta": {"type": "text_delta", "text": delta_text},
+                },
+            ).encode()
+
+        if getattr(choice, "finish_reason", None) is not None:
+            break
+
+    yield sse(
+        "content_block_stop",
+        {"type": "content_block_stop", "index": 0},
+    ).encode()
+    yield sse(
+        "message_delta",
+        {
+            "type": "message_delta",
+            "delta": {"stop_reason": "end_turn", "stop_sequence": None},
+            "usage": {"output_tokens": out_tokens},
+        },
+    ).encode()
+    yield sse("message_stop", {"type": "message_stop"}).encode()
 
 
+# -------- NEW: 2️⃣ Main route with streaming -----------
 @app.post("/v1/messages")
 async def proxy(request: MessagesRequest):
     print(f"[bold cyan]🚀 Anthropic → Groq | Model: {request.model}[/bold cyan]")
 
     openai_messages = convert_messages(request.messages)
     tools = convert_tools(request.tools) if request.tools else None
-    
     max_tokens = min(request.max_tokens or GROQ_MAX_OUTPUT_TOKENS, GROQ_MAX_OUTPUT_TOKENS)
-    
-    if request.max_tokens and request.max_tokens > GROQ_MAX_OUTPUT_TOKENS:
-        print(f"[bold yellow]⚠️  Capping max_tokens from {request.max_tokens} to {GROQ_MAX_OUTPUT_TOKENS}[/bold yellow]")
 
+    if request.stream:
+        # --- Streaming path ---
+        groq_stream = client.chat.completions.create(
+            model=GROQ_MODEL,
+            messages=openai_messages,
+            tools=tools,
+            tool_choice=request.tool_choice,
+            temperature=request.temperature,
+            max_tokens=max_tokens,
+            stream=True,
+        )
+
+        def streamer():
+            # groq_stream is a regular iterator
+            yield from anthropic_stream(
+                groq_stream,
+                usage_in=0,
+                model_name=f"groq/{GROQ_MODEL}"
+            )
+
+
+        return StreamingResponse(streamer(), media_type="text/event-stream")
+
+    # --- Non‑stream fallback (existing logic, shortened here) ---
     completion = client.chat.completions.create(
         model=GROQ_MODEL,
         messages=openai_messages,
-        temperature=request.temperature,
-        max_tokens=max_tokens,
         tools=tools,
         tool_choice=request.tool_choice,
+        temperature=request.temperature,
+        max_tokens=max_tokens,
     )
 
     choice = completion.choices[0]
@@ -144,25 +231,22 @@ async def proxy(request: MessagesRequest):
         tool_content = [{"type": "text", "text": msg.content}]
         stop_reason = "end_turn"
 
-    return {
-        "id": f"msg_{uuid.uuid4().hex[:12]}",
-        "model": f"groq/{GROQ_MODEL}",
-        "role": "assistant",
-        "type": "message",
-        "content": tool_content,
-        "stop_reason": stop_reason,
-        "stop_sequence": None,
-        "usage": {
-            "input_tokens": completion.usage.prompt_tokens,
-            "output_tokens": completion.usage.completion_tokens,
-        },
-    }
+    return JSONResponse(
+        {
+            "id": f"msg_{uuid.uuid4().hex[:12]}",
+            "model": f"groq/{GROQ_MODEL}",
+            "role": "assistant",
+            "type": "message",
+            "content": tool_content,
+            "stop_reason": stop_reason,
+            "stop_sequence": None,
+            "usage": {
+                "input_tokens": completion.usage.prompt_tokens,
+                "output_tokens": completion.usage.completion_tokens,
+            },
+        }
+    )
 
-
-@app.get("/")
-def root():
-    return {"message": "Groq Anthropic Tool Proxy is alive 💡"}
-
-
+# CLI entry point unchanged
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=7187)
