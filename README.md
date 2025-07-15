@@ -18,6 +18,8 @@ Then install the package:
 
 ```bash
 pip install cckimi
+# or:
+# pip install "cckimi @ git+https://github.com/fakerybakery/claude-code-kimi-groq"
 ```
 
 ## Quick Start
@@ -44,3 +46,5 @@ Inspired by [claude-code-proxy](https://github.com/1rgs/claude-code-proxy).
 ## License
 
 MIT
+
+Disclaimer: Not affiliated with Groq or Moonshot AI.

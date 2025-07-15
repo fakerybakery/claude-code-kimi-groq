@@ -404,6 +404,7 @@ def kimi_cli(ctx):
     
     env = os.environ.copy()
     env["ANTHROPIC_BASE_URL"] = f"http://localhost:{port}"
+    env["ANTHROPIC_API_KEY"] = "NOT_NEEDED"
     
     # Get all arguments passed to kimi and pass them to claude
     args = sys.argv[1:]
