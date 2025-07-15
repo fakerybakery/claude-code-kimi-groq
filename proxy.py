@@ -1,99 +1,158 @@
+import json
 import os
 import uuid
-from fastapi import FastAPI, Request
-from pydantic import BaseModel
-from typing import List, Literal, Optional, Union
-from openai import OpenAI
-from fastapi.responses import StreamingResponse
-from dotenv import load_dotenv
-from rich import print
+from typing import Any, Dict, List, Literal, Optional, Union
+
 import uvicorn
+from dotenv import load_dotenv
+from fastapi import FastAPI, Request
+from fastapi.responses import StreamingResponse
+from openai import OpenAI
+from pydantic import BaseModel
+from rich import print
 
 load_dotenv()
 app = FastAPI()
 
-GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-client = OpenAI(api_key=GROQ_API_KEY, base_url="https://api.groq.com/openai/v1")
+client = OpenAI(
+    api_key=os.getenv("GROQ_API_KEY"), base_url="https://api.groq.com/openai/v1"
+)
 
-# ---- Models ----
+GROQ_MODEL = "moonshotai/kimi-k2-instruct"
 
+
+# ---------- Anthropic Schema ----------
 class ContentBlock(BaseModel):
     type: Literal["text"]
     text: str
 
+class ToolUseBlock(BaseModel):
+    type: Literal["tool_use"]
+    id: str
+    name: str
+    input: Dict[str, Union[str, int, float, bool, dict, list]]
+
 class Message(BaseModel):
     role: Literal["user", "assistant"]
-    content: Union[str, List[ContentBlock]]
+    content: Union[str, List[Union[ContentBlock, ToolUseBlock]]]
+
+class Tool(BaseModel):
+    name: str
+    description: Optional[str]
+    input_schema: Dict[str, Any]
 
 class MessagesRequest(BaseModel):
-    model: str = "claude-3-opus"
+    model: str
     messages: List[Message]
     max_tokens: Optional[int] = 1024
     temperature: Optional[float] = 0.7
     stream: Optional[bool] = False
+    tools: Optional[List[Tool]] = None
+    tool_choice: Optional[Union[str, Dict[str, str]]] = "auto"
 
-# ---- Helper ----
+# ---------- Conversion Helpers ----------
 
-def anthropic_to_openai(messages: List[Message]) -> List[dict]:
-    """Flatten Anthropic-style content blocks into OpenAI-style messages."""
+
+def convert_messages(messages: List[Message]) -> List[dict]:
     converted = []
     for m in messages:
         if isinstance(m.content, str):
-            content_str = m.content
+            content = m.content
         else:
-            content_str = "\n\n".join(block.text for block in m.content if block.type == "text")
-        converted.append({"role": m.role, "content": content_str})
+            parts = []
+            for block in m.content:
+                if block.type == "text":
+                    parts.append(block.text)
+                elif block.type == "tool_use":
+                    # Not typical to have this from user, but just in case
+                    tool_info = f"[Tool: {block.name}] {json.dumps(block.input)}"
+                    parts.append(tool_info)
+            content = "\n".join(parts)
+        converted.append({"role": m.role, "content": content})
     return converted
 
-# ---- Endpoint ----
+
+def convert_tools(tools: List[Tool]) -> List[dict]:
+    return [
+        {
+            "type": "function",
+            "function": {
+                "name": t.name,
+                "description": t.description or "",
+                "parameters": t.input_schema,
+            },
+        }
+        for t in tools
+    ]
+
+
+def convert_tool_calls_to_anthropic(tool_calls) -> List[dict]:
+    content = []
+    for call in tool_calls:
+        fn = call.function
+        arguments = json.loads(fn.arguments)
+
+        content.append(
+            {
+                "type": "text",
+                "text": f"<thinking>Tool call needed for {fn.name}</thinking>",
+            }
+        )
+        content.append(
+            {"type": "tool_use", "id": call.id, "name": fn.name, "input": arguments}
+        )
+    return content
+
+
+# ---------- Main Proxy Route ----------
+
 
 @app.post("/v1/messages")
 async def proxy(request: MessagesRequest):
-    print(f"[bold cyan]🛰️  Proxying to Groq: {request.model}[/bold cyan]")
+    print(f"[bold cyan]🚀 Anthropic → Groq | Model: {request.model}[/bold cyan]")
 
-    chat_messages = anthropic_to_openai(request.messages)
+    openai_messages = convert_messages(request.messages)
+    tools = convert_tools(request.tools) if request.tools else None
 
-    if request.stream:
-        def stream_response():
-            chat = client.chat.completions.create(
-                model="moonshotai/kimi-k2-instruct",
-                messages=chat_messages,
-                temperature=request.temperature,
-                max_tokens=request.max_tokens,
-                stream=True,
-            )
-            for chunk in chat:
-                delta = chunk.choices[0].delta.content
-                if delta:
-                    yield delta
+    completion = client.chat.completions.create(
+        model=GROQ_MODEL,
+        messages=openai_messages,
+        temperature=request.temperature,
+        max_tokens=request.max_tokens,
+        tools=tools,
+        tool_choice=request.tool_choice,
+    )
 
-        return StreamingResponse(stream_response(), media_type="text/plain")
+    choice = completion.choices[0]
+    msg = choice.message
 
+    # If it's a tool call, convert it properly
+    if msg.tool_calls:
+        tool_content = convert_tool_calls_to_anthropic(msg.tool_calls)
+        stop_reason = "tool_use"
     else:
-        chat = client.chat.completions.create(
-            model="moonshotai/kimi-k2-instruct",
-            messages=chat_messages,
-            temperature=request.temperature,
-            max_tokens=request.max_tokens,
-        )
+        tool_content = [{"type": "text", "text": msg.content}]
+        stop_reason = "end_turn"
 
-        return {
-            "id": f"msg_{uuid.uuid4().hex}",
-            "model": f"groq/llama3-70b-8192",
-            "role": "assistant",
-            "type": "message",
-            "content": [{"type": "text", "text": chat.choices[0].message.content}],
-            "usage": {
-                "input_tokens": chat.usage.prompt_tokens,
-                "output_tokens": chat.usage.completion_tokens,
-            },
-            "stop_reason": "end_turn",
-            "stop_sequence": None,
-        }
+    return {
+        "id": f"msg_{uuid.uuid4().hex[:12]}",
+        "model": f"groq/{GROQ_MODEL}",
+        "role": "assistant",
+        "type": "message",
+        "content": tool_content,
+        "stop_reason": stop_reason,
+        "stop_sequence": None,
+        "usage": {
+            "input_tokens": completion.usage.prompt_tokens,
+            "output_tokens": completion.usage.completion_tokens,
+        },
+    }
+
 
 @app.get("/")
 def root():
-    return {"message": "Groq Anthropic Proxy is up 🚀"}
+    return {"message": "Groq Anthropic Tool Proxy is alive 💡"}
+
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=7187)
