@@ -1,36 +1,45 @@
-# Use Kimi K2 on Claude Code through Groq
+# Use Kimi K2 with Claude Code on Groq
 
-Run the Groq <> Anthropic API proxy:
+Use Kimi K2 model through Groq API with Claude Code. Drop-in replacement for `claude` command.
+
+## Changelog
+
+* **v0.1.0**: Converted from a simple Proxy script to a library. The original proxy script is available in the [`simple-proxy`](https://github.com/fakerybakery/claude-code-kimi-groq/tree/simple-proxy) branch but will no longer be maintained.
+
+## Installation
+
+If you don't already have Claude Code installed, you can install it with:
+
+```
+npm install -g @anthropic-ai/claude-code
+```
+
+Then install the package:
 
 ```bash
-python proxy.py
+pip install cckimi
 ```
 
-Set the Anthropic Base URL:
+## Quick Start
 
-```
-export ANTHROPIC_BASE_URL=http://localhost:7187
-```
-
-If you're not already authenticated with Anthropic you may need to run:
-
-```
-export ANTHROPIC_API_KEY=NOT_NEEDED
-```
-
-Run Claude Code with the Groq API key:
+Get a free Groq API key from [Groq](https://console.groq.com/keys).
 
 ```bash
-claude
+# Store your Groq API key
+cckimi login
+
+# Use `kimi` instead of `claude`
+kimi
+kimi "write a hello world program"
 ```
 
-## If you use this:
+## If you use this
 
 If you use this, I'd love to hear about your experience with Kimi K2 and how it compared with Claude! Please open an Issue to share your experience.
 
 ## Acknowledgements
 
-Inspired by [claude-code-proxy](https://github.com/1rgs/claude-code-proxy)
+Inspired by [claude-code-proxy](https://github.com/1rgs/claude-code-proxy).
 
 ## License
 
