@@ -12,6 +12,12 @@ Set the Anthropic Base URL:
 export ANTHROPIC_BASE_URL=http://localhost:7187
 ```
 
+If you're not already authenticated with Anthropic you may need to run:
+
+```
+export ANTHROPIC_API_KEY=NOT_NEEDED
+```
+
 Run Claude Code with the Groq API key:
 
 ```bash
