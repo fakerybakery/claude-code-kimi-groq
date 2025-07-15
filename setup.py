@@ -2,8 +2,14 @@ from setuptools import setup, find_packages
 
 setup(
     name="cckimi",
-    version="0.1.0",
+    version="0.1.1",
     description="Claude Code Kimi-Groq Proxy",
+    long_description=open("README.md").read(),
+    long_description_content_type="text/markdown",
+    url="https://github.com/fakerybakery/claude-code-kimi-groq",
+    author="fakerybakery",
+    author_email="me@mrfake.name",
+    license="MIT",
     packages=find_packages(),
     install_requires=[
         "click>=8.0.0",
