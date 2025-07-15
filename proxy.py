@@ -32,9 +32,14 @@ class ToolUseBlock(BaseModel):
     name: str
     input: Dict[str, Union[str, int, float, bool, dict, list]]
 
+class ToolResultBlock(BaseModel):
+    type: Literal["tool_result"]
+    tool_use_id: str
+    content: Union[str, List[Dict[str, Any]], Dict[str, Any], List[Any], Any]
+
 class Message(BaseModel):
     role: Literal["user", "assistant"]
-    content: Union[str, List[Union[ContentBlock, ToolUseBlock]]]
+    content: Union[str, List[Union[ContentBlock, ToolUseBlock, ToolResultBlock]]]
 
 class Tool(BaseModel):
     name: str
@@ -64,12 +69,16 @@ def convert_messages(messages: List[Message]) -> List[dict]:
                 if block.type == "text":
                     parts.append(block.text)
                 elif block.type == "tool_use":
-                    # Not typical to have this from user, but just in case
-                    tool_info = f"[Tool: {block.name}] {json.dumps(block.input)}"
+                    tool_info = f"[Tool Use: {block.name}] {json.dumps(block.input)}"
                     parts.append(tool_info)
+                elif block.type == "tool_result":
+                    result = block.content
+                    print(f"[bold yellow]📥 Tool Result for {block.tool_use_id}: {json.dumps(result, indent=2)}[/bold yellow]")
+                    parts.append(f"<tool_result>{json.dumps(result)}</tool_result>")
             content = "\n".join(parts)
         converted.append({"role": m.role, "content": content})
     return converted
+
 
 
 def convert_tools(tools: List[Tool]) -> List[dict]:
@@ -92,12 +101,8 @@ def convert_tool_calls_to_anthropic(tool_calls) -> List[dict]:
         fn = call.function
         arguments = json.loads(fn.arguments)
 
-        content.append(
-            {
-                "type": "text",
-                "text": f"<thinking>Tool call needed for {fn.name}</thinking>",
-            }
-        )
+        print(f"[bold green]🛠 Tool Call: {fn.name}({json.dumps(arguments, indent=2)})[/bold green]")
+
         content.append(
             {"type": "tool_use", "id": call.id, "name": fn.name, "input": arguments}
         )
