@@ -19,6 +19,7 @@ client = OpenAI(
 )
 
 GROQ_MODEL = "moonshotai/kimi-k2-instruct"
+GROQ_MAX_OUTPUT_TOKENS = 16384
 
 
 # ---------- Anthropic Schema ----------
@@ -118,12 +119,17 @@ async def proxy(request: MessagesRequest):
 
     openai_messages = convert_messages(request.messages)
     tools = convert_tools(request.tools) if request.tools else None
+    
+    max_tokens = min(request.max_tokens or GROQ_MAX_OUTPUT_TOKENS, GROQ_MAX_OUTPUT_TOKENS)
+    
+    if request.max_tokens and request.max_tokens > GROQ_MAX_OUTPUT_TOKENS:
+        print(f"[bold yellow]⚠️  Capping max_tokens from {request.max_tokens} to {GROQ_MAX_OUTPUT_TOKENS}[/bold yellow]")
 
     completion = client.chat.completions.create(
         model=GROQ_MODEL,
         messages=openai_messages,
         temperature=request.temperature,
-        max_tokens=request.max_tokens,
+        max_tokens=max_tokens,
         tools=tools,
         tool_choice=request.tool_choice,
     )
@@ -131,7 +137,6 @@ async def proxy(request: MessagesRequest):
     choice = completion.choices[0]
     msg = choice.message
 
-    # If it's a tool call, convert it properly
     if msg.tool_calls:
         tool_content = convert_tool_calls_to_anthropic(msg.tool_calls)
         stop_reason = "tool_use"
