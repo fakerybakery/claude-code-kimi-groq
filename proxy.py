@@ -61,6 +61,13 @@ class MessagesRequest(BaseModel):
 
 def convert_messages(messages: List[Message]) -> List[dict]:
     converted = []
+    tool_use_map = {}
+    for m in messages:
+        if not isinstance(m.content, str):
+            for block in m.content:
+                if block.type == "tool_use":
+                    tool_use_map[block.id] = block.name
+
     for m in messages:
         if isinstance(m.content, str):
             content = m.content
@@ -70,14 +77,41 @@ def convert_messages(messages: List[Message]) -> List[dict]:
                 if block.type == "text":
                     parts.append(block.text)
                 elif block.type == "tool_use":
+                    # This case is primarily for display/logging if needed,
+                    # as the actual tool call is handled by the OpenAI API directly
+                    # from the assistant's response. We'll pass it as text.
                     tool_info = f"[Tool Use: {block.name}] {json.dumps(block.input)}"
                     parts.append(tool_info)
                 elif block.type == "tool_result":
-                    result = block.content
-                    print(f"[bold yellow]📥 Tool Result for {block.tool_use_id}: {json.dumps(result, indent=2)}[/bold yellow]")
-                    parts.append(f"<tool_result>{json.dumps(result)}</tool_result>")
+                    if parts:
+                        converted.append({"role": m.role, "content": "\n".join(parts)})
+                        parts = []
+
+                    print(
+                        f"[bold yellow]📥 Tool Result for "
+                        f"{block.tool_use_id}: {json.dumps(block.content, indent=2)}[/bold yellow]"
+                    )
+                    
+                    function_name = tool_use_map.get(block.tool_use_id)
+                    if not function_name:
+                         print(f"[bold red]Error: Could not find corresponding tool_use for tool_result {block.tool_use_id}[/bold red]")
+                         # Fallback or error handling
+                         # For now, we'll add a placeholder name as OpenAI requires it.
+                         function_name = "unknown_tool"
+
+                    converted.append(
+                        {
+                            "role": "tool",
+                            "tool_call_id": block.tool_use_id,
+                            "name": function_name,
+                            "content": json.dumps(block.content),
+                        }
+                    )
             content = "\n".join(parts)
-        converted.append({"role": m.role, "content": content})
+        
+        if content:
+             converted.append({"role": m.role, "content": content})
+
     return converted
 
 
@@ -125,38 +159,48 @@ async def proxy(request: MessagesRequest):
     if request.max_tokens and request.max_tokens > GROQ_MAX_OUTPUT_TOKENS:
         print(f"[bold yellow]⚠️  Capping max_tokens from {request.max_tokens} to {GROQ_MAX_OUTPUT_TOKENS}[/bold yellow]")
 
-    completion = client.chat.completions.create(
-        model=GROQ_MODEL,
-        messages=openai_messages,
-        temperature=request.temperature,
-        max_tokens=max_tokens,
-        tools=tools,
-        tool_choice=request.tool_choice,
-    )
+    try:
+        completion = client.chat.completions.create(
+            model=GROQ_MODEL,
+            messages=openai_messages,
+            temperature=request.temperature,
+            max_tokens=max_tokens,
+            tools=tools,
+            tool_choice=request.tool_choice,
+        )
 
-    choice = completion.choices[0]
-    msg = choice.message
+        choice = completion.choices[0]
+        msg = choice.message
 
-    if msg.tool_calls:
-        tool_content = convert_tool_calls_to_anthropic(msg.tool_calls)
-        stop_reason = "tool_use"
-    else:
-        tool_content = [{"type": "text", "text": msg.content}]
-        stop_reason = "end_turn"
+        if msg.tool_calls:
+            tool_content = convert_tool_calls_to_anthropic(msg.tool_calls)
+            stop_reason = "tool_use"
+        else:
+            tool_content = [{"type": "text", "text": msg.content}]
+            stop_reason = "end_turn"
 
-    return {
-        "id": f"msg_{uuid.uuid4().hex[:12]}",
-        "model": f"groq/{GROQ_MODEL}",
-        "role": "assistant",
-        "type": "message",
-        "content": tool_content,
-        "stop_reason": stop_reason,
-        "stop_sequence": None,
-        "usage": {
-            "input_tokens": completion.usage.prompt_tokens,
-            "output_tokens": completion.usage.completion_tokens,
-        },
-    }
+        return {
+            "id": f"msg_{uuid.uuid4().hex[:12]}",
+            "model": f"groq/{GROQ_MODEL}",
+            "role": "assistant",
+            "type": "message",
+            "content": tool_content,
+            "stop_reason": stop_reason,
+            "stop_sequence": None,
+            "usage": {
+                "input_tokens": completion.usage.prompt_tokens,
+                "output_tokens": completion.usage.completion_tokens,
+            },
+        }
+    except Exception as e:
+        print(f"[bold red]❌ Error calling Groq: {e}[/bold red]")
+        return {
+            "type": "error",
+            "error": {
+                "type": "api_error",
+                "message": str(e)
+            }
+        }
 
 
 @app.get("/")
