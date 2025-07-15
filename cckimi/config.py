@@ -14,7 +14,21 @@ GROQ_BASE_URL = "https://api.groq.com/openai/v1"
 # Initialize OpenAI client for Groq
 def get_groq_client() -> OpenAI:
     """Get configured OpenAI client for Groq API."""
+    # Try environment variable first
+    api_key = os.getenv("GROQ_API_KEY")
+    
+    # If not found, try to get from cache
+    if not api_key:
+        try:
+            from .cli import get_api_key
+            api_key = get_api_key()
+        except ImportError:
+            pass
+    
+    if not api_key:
+        raise ValueError("GROQ_API_KEY not found in environment or cache")
+    
     return OpenAI(
-        api_key=os.getenv("GROQ_API_KEY"),
+        api_key=api_key,
         base_url=GROQ_BASE_URL
     )

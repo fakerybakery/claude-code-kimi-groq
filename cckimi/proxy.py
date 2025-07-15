@@ -12,13 +12,17 @@ from .streaming import anthropic_stream
 # Initialize FastAPI app
 app = FastAPI()
 
-# Initialize Groq client
-client = get_groq_client()
+# Initialize Groq client (lazy initialization)
+client = None
 
 
 @app.post("/v1/messages")
 async def proxy(request: MessagesRequest):
     """Proxy endpoint that translates Anthropic API calls to Groq API."""
+    global client
+    if client is None:
+        client = get_groq_client()
+    
     print(f"[bold cyan]🚀 Anthropic → Groq | Model: {request.model}[/bold cyan]")
 
     # Convert request data to Groq format
