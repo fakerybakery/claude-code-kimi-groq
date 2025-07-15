@@ -83,6 +83,7 @@ def convert_messages(messages: List[Message]) -> List[dict]:
                     tool_info = f"[Tool Use: {block.name}] {json.dumps(block.input)}"
                     parts.append(tool_info)
                 elif block.type == "tool_result":
+                    # Flush eventuella textfragment före tool‑resultatet
                     if parts:
                         converted.append({"role": m.role, "content": "\n".join(parts)})
                         parts = []
@@ -91,13 +92,9 @@ def convert_messages(messages: List[Message]) -> List[dict]:
                         f"[bold yellow]📥 Tool Result for "
                         f"{block.tool_use_id}: {json.dumps(block.content, indent=2)}[/bold yellow]"
                     )
-                    
-                    function_name = tool_use_map.get(block.tool_use_id)
-                    if not function_name:
-                         print(f"[bold red]Error: Could not find corresponding tool_use for tool_result {block.tool_use_id}[/bold red]")
-                         # Fallback or error handling
-                         # For now, we'll add a placeholder name as OpenAI requires it.
-                         function_name = "unknown_tool"
+
+                    # Hämta vilket verktyg som kallades (namnet behövs av OpenAI‑schema)
+                    function_name = tool_use_map.get(block.tool_use_id, "unknown_tool")
 
                     converted.append(
                         {
