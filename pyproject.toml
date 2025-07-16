@@ -1,0 +1,29 @@
+[project]
+name = "groq-anthropic-proxy"
+version = "0.1.0"
+description = "FastAPI proxy that converts Anthropic tool messages to Groq/Kimi-K2 format"
+readme = "README.md"
+requires-python = ">=3.9"
+authors = [
+    { name = "Your Name", email = "you@example.com" }
+]
+
+dependencies = [
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.29",
+    "python-dotenv>=1.0",
+    "openai>=1.14",
+    "pydantic>=2.6",
+    "rich>=13.7"
+]
+
+[project.optional-dependencies]
+dev = [
+    "ruff",
+    "black",
+    "pytest",
+    "httpx"
+]
+
+[project.scripts]
+proxy = "proxy:app"
