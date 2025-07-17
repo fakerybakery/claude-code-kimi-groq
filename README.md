@@ -43,4 +43,4 @@ Inspired by [claude-code-proxy](https://github.com/1rgs/claude-code-proxy)
 
 ## License
 
-MIT
+[MIT](LICENSE.md)
