@@ -1,8 +1,17 @@
 # Use Kimi K2 on Claude Code through Groq
 
-Run the Groq <> Anthropic API proxy:
+## Quick start (uv)
 
 ```bash
+# one-time setup
+brew install astral-sh/uv/uv   # or pipx install uv
+
+# project setup
+uv venv .venv
+source .venv/bin/activate
+uv pip install -e .
+
+# run the proxy
 python proxy.py
 ```
 
