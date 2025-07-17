@@ -3,6 +3,8 @@
 ## Quick start (uv)
 
 ```bash
+export GROQ_API_KEY=YOUR_GROQ_API_KEY
+
 # one-time setup
 brew install astral-sh/uv/uv   # or pipx install uv
 
