@@ -17,6 +17,32 @@ uv pip install -e .
 python proxy.py
 ```
 
+## CLI Options
+
+The proxy supports several command-line options for configuration:
+
+```
+python proxy.py [OPTIONS]
+```
+
+Available options:
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--host` | 127.0.0.1 | Host to bind the server to |
+| `--port` | 7187 | Port to run the server on |
+| `--debug` | False | Use cheaper model for debugging |
+| `--log` | False | Enable detailed file logging of model responses |
+| `--vfs-base` | Current directory | Set custom base directory for the Virtual File System |
+| `--tools-dir` | ./tools | Set custom directory for tool modules |
+| `--help` | - | Show help message and exit |
+
+Example with options:
+
+```bash
+python proxy.py --host 0.0.0.0 --port 8000 --debug --log --vfs-base /path/to/workspace --tools-dir /path/to/custom/tools
+```
+
 Set the Anthropic Base URL:
 
 ```
