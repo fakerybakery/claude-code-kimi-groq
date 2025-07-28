@@ -1,11 +1,13 @@
 # Use Kimi K2 on Claude Code through Groq
 
+This is a fork of fakerybakery's https://github.com/fakerybakery/claude-code-kimi-groq , experimenting with tool use support and additional security features. This is currently experimental, beta software. Use at your own risk, etc.
+
 ## Quick start (uv)
 
 ```bash
 export GROQ_API_KEY=YOUR_GROQ_API_KEY
 
-# one-time setup
+# one-time setup of uv, if needed
 brew install astral-sh/uv/uv   # or pipx install uv
 
 # project setup
@@ -27,15 +29,15 @@ python proxy.py [OPTIONS]
 
 Available options:
 
-| Option | Default | Description |
-|--------|---------|-------------|
-| `--host` | 127.0.0.1 | Host to bind the server to |
-| `--port` | 7187 | Port to run the server on |
-| `--debug` | False | Use cheaper model for debugging |
-| `--log` | False | Enable detailed file logging of model responses |
-| `--vfs-base` | Current directory | Set custom base directory for the Virtual File System |
-| `--tools-dir` | ./tools | Set custom directory for tool modules |
-| `--help` | - | Show help message and exit |
+| Option        | Default           | Description                                           |
+| ------------- | ----------------- | ----------------------------------------------------- |
+| `--host`      | 127.0.0.1         | Host to bind the server to                            |
+| `--port`      | 7187              | Port to run the server on                             |
+| `--debug`     | False             | Use cheaper model for debugging                       |
+| `--log`       | False             | Enable detailed file logging of model responses       |
+| `--vfs-base`  | Current directory | Set custom base directory for the Virtual File System |
+| `--tools-dir` | ./tools           | Set custom directory for tool modules                 |
+| `--help`      | -                 | Show help message and exit                            |
 
 Example with options:
 
