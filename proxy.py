@@ -63,7 +63,7 @@ def log_message(message, level="info"):
     """Log a message to both console and file if logging is enabled"""
     # Always print to console
     print(message)
-    
+
     # Log to file if enabled
     if args.log:
         if level == "info":
@@ -76,27 +76,31 @@ if DEBUG_MODE:
 
 # --- Project Paths ---
 PROJECT_ROOT = Path(__file__).parent.resolve()
-TOOLS_DIR = PROJECT_ROOT / "tools"
 
 # ---------- Tool Management ----------
 
 class ToolManager:
-    """Manages the loading and execution of tools."""
+    """Manager for loading and executing tools."""
 
-    def __init__(self, tools_dir: Path):
-        self.tools_dir = tools_dir
+    def __init__(self, vfs_base_path=None, tools_dir=None):
+        # Get the directory where the tools are located
+        current_dir = Path(__file__).parent
+        self.tools_dir = Path(tools_dir) if tools_dir else current_dir / "tools"
+
+        # Initialize the VFS with the specified or current working directory as base
+        base_path = vfs_base_path if vfs_base_path else os.getcwd()
+        self.vfs = VirtualFileSystem(base_path=base_path)
+        log_message(f"🌐 Initialized Virtual File System with base path: {self.vfs.base_path}")
+
+        # Dictionary to store loaded tools
         self.tools = {}
-        
-        # Initialize the Virtual File System with the current working directory
-        self.vfs = VirtualFileSystem(Path.cwd())
-        print(f"[bold blue]🌐 Initialized Virtual File System with base path: {self.vfs.base_path}[/bold blue]")
-        
+
         self.load_tools()
 
     def load_tools(self):
         """Load all tools from the tools directory."""
         print(f"[bold blue]🔍 Loading tools from {self.tools_dir}...[/bold blue]")
-        
+
         # Define a whitelist of allowed tools for security
         # Format: {module_name: [class_names]}
         tool_whitelist = {
@@ -105,24 +109,24 @@ class ToolManager:
             "bash_tool": ["BashTool"],
             "read_tool": ["ReadTool"],
         }
-        
+
         for module_name, class_names in tool_whitelist.items():
             try:
                 full_module_name = f"{self.tools_dir.name}.{module_name}"
                 print(f"  - Importing module: {full_module_name}")
                 module = importlib.import_module(full_module_name)
-                
+
                 for class_name in class_names:
                     try:
                         print(f"    - Looking for class: {class_name}")
                         tool_class = getattr(module, class_name)
                         tool_instance = tool_class()
-                        
+
                         # Pass the VFS to the tool if it has a set_vfs method
                         if hasattr(tool_instance, 'set_vfs'):
                             tool_instance.set_vfs(self.vfs)
                             print(f"    ✅ Passed VFS to tool: {class_name}")
-                            
+
                         tool_name = tool_instance.name
                         print(f"    ✅ Loaded tool: {tool_name} from {class_name}")
                         self.tools[tool_name] = tool_instance
@@ -130,7 +134,7 @@ class ToolManager:
                         print(f"    ❌ Error loading class {class_name}: {e}")
             except Exception as e:
                 print(f"  ❌ Error importing module {module_name}: {e}")
-                
+
         print(f"[bold green]✅ Loaded {len(self.tools)} tools: {list(self.tools.keys())}[/bold green]")
 
     def get_tool(self, name: str) -> Optional[Tool]:
@@ -140,7 +144,7 @@ class ToolManager:
         """Execute a tool by name with the given arguments."""
         if tool_name not in self.tools:
             return {"error": f"Tool '{tool_name}' not found. Available tools: {list(self.tools.keys())}"}
-        
+
         try:
             # Log the current VFS working directory for debugging
             print(f"[bold cyan]📂 Current VFS working directory: {self.vfs.get_cwd()}[/bold cyan]")
@@ -242,14 +246,27 @@ def convert_tool_calls_to_anthropic(tool_calls) -> List[dict]:
 
 from contextlib import asynccontextmanager
 
+# Initialize FastAPI app
+app = FastAPI()
+
+# Global variables for CLI arguments
+DEBUG_MODE = False
+LOG_TO_FILE = False
+VFS_BASE_PATH = None
+TOOLS_DIR = None
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Load the tool manager on startup
-    log_message("[bold green]🚀 Application starting up...[/bold green]")
-    app.state.tool_manager = ToolManager(tools_dir=TOOLS_DIR)
+    log_message("🚀 Application starting up...")
+    
+    # Initialize tool manager with CLI arguments
+    global tool_manager
+    tool_manager = ToolManager(vfs_base_path=VFS_BASE_PATH, tools_dir=TOOLS_DIR)
+    
     yield
-    # Clean up resources on shutdown if needed
-    log_message("[bold red]🛑 Application shutting down...[/bold red]")
+    # Clean up on shutdown
+    log_message("🛑 Application shutting down...")
 
 app = FastAPI(lifespan=lifespan)
 
@@ -284,7 +301,7 @@ async def proxy(request: Request): # Changed to generic Request to access app st
 
         choice = completion.choices[0]
         msg = choice.message
-        
+
         # Log the model's response
         log_message(f"[bold blue]📝 Model Response (first call):[/bold blue]")
         if msg.content:
@@ -316,15 +333,16 @@ async def proxy(request: Request): # Changed to generic Request to access app st
             for tool_call in msg.tool_calls:
                 function_name = tool_call.function.name
                 arguments = json.loads(tool_call.function.arguments)
-                
-                log_message(f"[bold green]🔨 Executing Tool: {function_name}({json.dumps(arguments, indent=2)})[/bold green]")
-                
-                # Log available tools for debugging
-                available_tools = list(request.app.state.tool_manager.tools.keys())
-                log_message(f"[bold yellow]... Available tools: {available_tools}[/bold yellow]")
 
-                result = request.app.state.tool_manager.execute_tool(function_name, **arguments)
-                
+                log_message(f"[bold green]🔨 Executing Tool: {function_name}({json.dumps(arguments, indent=2)})[/bold green]")
+
+                # Log available tools for debugging
+                available_tools = list(tool_manager.tools.keys())
+                log_message(f"[bold yellow]... Available tools: {available_tools}[/bold yellow]")
+                log_message(f"[bold blue]📂 Current VFS directory: {tool_manager.vfs.get_cwd()}[/bold blue]")
+
+                result = tool_manager.execute_tool(function_name, **arguments)
+
                 log_message(f"[bold yellow]📥 Tool Result for {tool_call.id}: {json.dumps(result, indent=2)}[/bold yellow]")
 
                 openai_messages.append(
@@ -347,7 +365,7 @@ async def proxy(request: Request): # Changed to generic Request to access app st
                 tool_choice=messages_request.tool_choice if hasattr(messages_request, 'tool_choice') else None,
             )
             msg = completion.choices[0].message
-            
+
             # Log the model's response after tool execution
             log_message(f"[bold green]📝 Model Response (after tool execution):[/bold green]")
             if msg.content:
@@ -375,22 +393,22 @@ async def proxy(request: Request): # Changed to generic Request to access app st
                 "output_tokens": completion.usage.completion_tokens,
             },
         }
-        
+
         # Log that we're returning the response
         log_message(f"[bold blue]📬 Returning response to client[/bold blue]")
-        
+
         return response
-        
+
     except Exception as e:
         # Log the error
         error_msg = f"[bold red]⚠️ ERROR: {str(e)}[/bold red]"
         log_message(error_msg, level="error")
-        
+
         # Print the full traceback for debugging
         import traceback
         tb = traceback.format_exc()
         log_message(f"[bold red]Traceback:\n{tb}[/bold red]", level="error")
-        
+
         # Return a proper error response
         return {
             "id": f"error_{uuid.uuid4().hex[:12]}",
@@ -406,6 +424,80 @@ def root():
     return {"message": "Groq Anthropic Tool Proxy is alive 💡"}
 
 
+def print_banner():
+    """Print a nice banner with version and info."""
+    banner = """
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃                                                                                  ┃
+┃  🤖 Groq Anthropic Tool Proxy                                                    ┃
+┃  Secure extensible tool execution for AI models                                 ┃
+┃                                                                                  ┃
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+    """
+    print(banner)
+
+
 if __name__ == "__main__":
-    # Change from 0.0.0.0 to 127.0.0.1 to restrict access to localhost only
-    uvicorn.run(app, host="127.0.0.1", port=7187)
+    import argparse
+
+    # Create argument parser
+    parser = argparse.ArgumentParser(
+        description="Groq Anthropic Tool Proxy - Secure extensible tool execution for AI models",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter
+    )
+
+    # Add arguments
+    parser.add_argument(
+        "--host",
+        default="127.0.0.1",
+        help="Host to bind the server to"
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=7187,
+        help="Port to run the server on"
+    )
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Use cheaper model for debugging"
+    )
+    parser.add_argument(
+        "--log",
+        action="store_true",
+        help="Enable detailed file logging of model responses"
+    )
+    parser.add_argument(
+        "--vfs-base",
+        default=None,
+        help="Set custom base directory for the Virtual File System (defaults to current working directory)"
+    )
+    parser.add_argument(
+        "--tools-dir",
+        default=None,
+        help="Set custom directory for tool modules (defaults to ./tools)"
+    )
+
+    # Parse arguments
+    args = parser.parse_args()
+
+    # Set global debug and log flags
+    DEBUG_MODE = args.debug
+    LOG_TO_FILE = args.log
+
+    # Print banner
+    print_banner()
+
+    # Print configuration summary
+    print(f"🔧 Configuration:")
+    print(f"  • Host: {args.host}")
+    print(f"  • Port: {args.port}")
+    print(f"  • Debug mode: {'✅ Enabled' if args.debug else '❌ Disabled'}")
+    print(f"  • File logging: {'✅ Enabled' if args.log else '❌ Disabled'}")
+    print(f"  • VFS base: {args.vfs_base or os.getcwd()}")
+    print(f"  • Tools directory: {args.tools_dir or os.path.join(os.path.dirname(__file__), 'tools')}")
+    print()
+
+    # Run the server
+    uvicorn.run(app, host=args.host, port=args.port)
