@@ -259,11 +259,11 @@ TOOLS_DIR = None
 async def lifespan(app: FastAPI):
     # Load the tool manager on startup
     log_message("🚀 Application starting up...")
-    
+
     # Initialize tool manager with CLI arguments
     global tool_manager
     tool_manager = ToolManager(vfs_base_path=VFS_BASE_PATH, tools_dir=TOOLS_DIR)
-    
+
     yield
     # Clean up on shutdown
     log_message("🛑 Application shutting down...")
@@ -461,7 +461,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--debug",
         action="store_true",
-        help="Use cheaper model for debugging"
+        help="Use cheaper model for debugging (llama-3.1-8b-instant)"
     )
     parser.add_argument(
         "--log",

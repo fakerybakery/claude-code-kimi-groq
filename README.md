@@ -29,15 +29,15 @@ python proxy.py [OPTIONS]
 
 Available options:
 
-| Option        | Default           | Description                                           |
-| ------------- | ----------------- | ----------------------------------------------------- |
-| `--host`      | 127.0.0.1         | Host to bind the server to                            |
-| `--port`      | 7187              | Port to run the server on                             |
-| `--debug`     | False             | Use cheaper model for debugging                       |
-| `--log`       | False             | Enable detailed file logging of model responses       |
-| `--vfs-base`  | Current directory | Set custom base directory for the Virtual File System |
-| `--tools-dir` | ./tools           | Set custom directory for tool modules                 |
-| `--help`      | -                 | Show help message and exit                            |
+| Option        | Default           | Description                                            |
+| ------------- | ----------------- | ------------------------------------------------------ |
+| `--host`      | 127.0.0.1         | Host to bind the server to                             |
+| `--port`      | 7187              | Port to run the server on                              |
+| `--debug`     | False             | Use cheaper model while testing (llama-3.1-8b-instant) |
+| `--log`       | False             | Enable detailed file logging of model responses        |
+| `--vfs-base`  | Current directory | Set custom base directory for the Virtual File System  |
+| `--tools-dir` | ./tools           | Set custom directory for tool modules                  |
+| `--help`      | -                 | Show help message and exit                             |
 
 Example with options:
 
@@ -70,6 +70,36 @@ If you use this, I'd love to hear about your experience with Kimi K2 and how it 
 ## Acknowledgements
 
 Inspired by [claude-code-proxy](https://github.com/1rgs/claude-code-proxy)
+
+## Testing
+
+The project includes a comprehensive test suite focusing on security and functionality of core components:
+
+- Path utilities (`utils.py`)
+- Virtual File System (`vfs.py`)
+- BashTool (`bash_tool.py`)
+
+### Running Tests
+
+Install development dependencies (including test tools):
+
+```bash
+pip install -e ".[dev]"
+```
+
+Run all tests:
+
+```bash
+pytest tests/
+```
+
+Run tests with coverage report:
+
+```bash
+pytest --cov=tools tests/
+```
+
+See [TESTING.md](TESTING.md) for detailed documentation on the test suite.
 
 ## License
 
